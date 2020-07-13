@@ -1,0 +1,42 @@
+{
+    "ac_kwargs":	{
+        "activation":	"Tanh",
+        "hidden_sizes":	[
+            32,
+            32
+        ]
+    },
+    "actor_critic":	"MLPActorCritic",
+    "env_fn":	"<function call_experiment.<locals>.thunk_plus.<locals>.<lambda> at 0x7f95a002e440>",
+    "epochs":	5,
+    "epsilon":	10,
+    "exp_name":	"dvpg_LunarLander-v2_lunarlander-v2_eps10_pi0-03",
+    "gamma":	0.99,
+    "lam":	0.97,
+    "logger":	{
+        "<sderl.utils.logx.EpochLogger object at 0x7f95e016e0d0>":	{
+            "epoch_dict":	{},
+            "exp_name":	"dvpg_LunarLander-v2_lunarlander-v2_eps10_pi0-03",
+            "first_row":	true,
+            "log_current_row":	{},
+            "log_headers":	[],
+            "output_dir":	"/Users/xiaohan.zhang/Codes/spinningup/data/dvpg_LunarLander-v2_lunarlander-v2_eps10_pi0-03/dvpg_LunarLander-v2_lunarlander-v2_eps10_pi0-03_s10",
+            "output_file":	{
+                "<_io.TextIOWrapper name='/Users/xiaohan.zhang/Codes/spinningup/data/dvpg_LunarLander-v2_lunarlander-v2_eps10_pi0-03/dvpg_LunarLander-v2_lunarlander-v2_eps10_pi0-03_s10/progress.txt' mode='w' encoding='UTF-8'>":	{
+                    "mode":	"w"
+                }
+            }
+        }
+    },
+    "logger_kwargs":	{
+        "exp_name":	"dvpg_LunarLander-v2_lunarlander-v2_eps10_pi0-03",
+        "output_dir":	"/Users/xiaohan.zhang/Codes/spinningup/data/dvpg_LunarLander-v2_lunarlander-v2_eps10_pi0-03/dvpg_LunarLander-v2_lunarlander-v2_eps10_pi0-03_s10"
+    },
+    "max_ep_len":	1000,
+    "pi_lr":	0.03,
+    "save_freq":	10,
+    "seed":	10,
+    "steps_per_epoch":	4000,
+    "train_v_iters":	80,
+    "vf_lr":	0.001
+}
