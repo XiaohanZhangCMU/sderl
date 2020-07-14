@@ -150,21 +150,24 @@ def plot_data(data, xaxis='Epoch', value="AverageEpRet", condition="Condition1",
                 return s1[:i]
         return s1
 
+    # To change hue name in plot, rename the column name here.
+
     data['Condition1_short']=data['Condition1'].apply(lambda x : x[len(commonprefix(data['Condition1'].unique().tolist())):])
     data['Condition2_short']=data['Condition2'].apply(lambda x : x[len(commonprefix(data['Condition2'].unique().tolist())):])
 
     sns.set(style="darkgrid", font_scale=1.5)
-    if shorten_legends:
-        sns.tsplot(data=data, time=xaxis, value=value, unit="Unit", condition=condition+'_short', ci='sd', **kwargs)
+    if shorten_legends:        
+        # sns.tsplot(data=data, time=xaxis, value=value, unit="Unit", condition=condition+'_short', ci='sd', **kwargs)
+        sns.lineplot(data=data, x=xaxis, y=value, hue=condition+'_short', ci='sd', **kwargs)
     else:
-        sns.tsplot(data=data, time=xaxis, value=value, unit="Unit", condition=condition, ci='sd', **kwargs)
-        # sns.lineplot(data=data, x=xaxis, y=value, hue=condition, ci='sd', **kwargs)
+        # sns.tsplot(data=data, time=xaxis, value=value, unit="Unit", condition=condition, ci='sd', **kwargs)
+        sns.lineplot(data=data, x=xaxis, y=value, hue=condition, ci='sd', **kwargs)        
 
-    plt.legend(loc='best').set_draggable(True)
+    # plt.legend(loc='best').set_draggable(True)
     # plt.legend(loc='upper center', ncol=3, handlelength=1,
     #           borderaxespad=0., prop={'size': 13})
-    # plt.legend(loc='lower right', ncol=1, handlelength=1,
-    #            mode="expand", borderaxespad=0., prop={'size': 13})
+    plt.legend(loc='lower right', ncol=1, handlelength=1,
+               mode=None, borderaxespad=0., prop={'size': 12})
 
     xscale = np.max(np.asarray(data[xaxis])) > 5e3
     if xscale:
