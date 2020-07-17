@@ -52,8 +52,8 @@ class SquashedGaussianMLPActor(nn.Module):
 
         if with_logprob:
             # Compute logprob from Gaussian, and then apply correction for Tanh squashing.
-            # NOTE: The correction formula is a little bit magic. To get an understanding 
-            # of where it comes from, check out the original SAC paper (arXiv 1801.01290) 
+            # NOTE: The correction formula is a little bit magic. To get an understanding
+            # of where it comes from, check out the original SAC paper (arXiv 1801.01290)
             # and look in appendix C. This is a more numerically-stable equivalent to Eq 21.
             # Try deriving it yourself as a (very difficult) exercise. :)
             logp_pi = pi_distribution.log_prob(pi_action).sum(axis=-1)
@@ -95,4 +95,4 @@ class MLPActorCritic(nn.Module):
     def act(self, obs, deterministic=False):
         with torch.no_grad():
             a, _ = self.pi(obs, deterministic, False)
-            return a.numpy()
+            return a.cpu().numpy()
