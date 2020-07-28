@@ -28,7 +28,7 @@ SUBSTITUTIONS = {'env': 'env_name',
 MPI_COMPATIBLE_ALGOS = ['vpg', 'trpo', 'ppo', 'dppo', 'dvpg']
 
 # Algo names (used in a few places)
-BASE_ALGO_NAMES = ['vpg', 'trpo', 'ppo', 'dppo', 'dvpg', 'ddpg', 'td3', 'sac']
+BASE_ALGO_NAMES = ['vpg', 'trpo', 'ppo', 'dppo', 'dvpg', 'ddpg', 'td3', 'sac', 'sac_atari']
 
 
 def add_with_backends(algo_list):
