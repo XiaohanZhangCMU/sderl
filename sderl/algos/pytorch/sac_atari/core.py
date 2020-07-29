@@ -112,7 +112,7 @@ class CategoricalMLPActor(nn.Module):
         elif feng == 'cnn':
             self.fe_net, feat_dim = cnn(obs_dim)
 
-        self.logits_net = mlp([feat_dim] + list(hidden_sizes) + [act_dim], activation, output_activation=nn.Tanh)
+        self.logits_net = mlp([feat_dim] + list(hidden_sizes) + [act_dim], activation)
 
     def forward(self, obs, deterministic=False, with_logprob=True):
         logits = self.logits_net(self.fe_net(obs))
