@@ -34,9 +34,9 @@ class ReplayBuffer:
 
     def sample_batch(self, batch_size=32):
         idxs = np.random.randint(0, self.size, size=batch_size)
-        batch = dict(obs=torch.ByteTensor(self.obs_buf[idxs]),
-                     obs2=torch.ByteTensor(self.obs2_buf[idxs]),
-                     act=torch.LongTensor(self.act_buf[idxs]),
+        batch = dict(obs=self.obs_buf[idxs],
+                     obs2=self.obs2_buf[idxs],
+                     act=self.act_buf[idxs],
                      rew=self.rew_buf[idxs],
                      done=self.done_buf[idxs])
 
@@ -275,7 +275,7 @@ def sac_atari(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0
 
     def get_action(o, deterministic=False):
         o = np.expand_dims(o, axis=0)
-        a = ac.act(torch.as_tensor(o, dtype=torch.float32), deterministic)
+        a = ac.act(torch.as_tensor(o, dtype=torch.float32).to(device), deterministic)
         return np.squeeze(a, axis=0)
 
     def test_agent():
