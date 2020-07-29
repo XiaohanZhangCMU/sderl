@@ -1,5 +1,6 @@
 from os.path import join, dirname, realpath
 from setuptools import setup
+from setuptools import find_packages
 import sys
 
 assert sys.version_info.major == 3 and sys.version_info.minor >= 6, \
@@ -13,6 +14,8 @@ setup(
     name='sderl',
     py_modules=['sderl'],
     version=__version__,#'0.1',
+    url = 'https://github.com/XiaohanZhangCMU/sderl.git',
+    download_url = 'https://github.com/XiaohanZhangCMU/sderl/archive/0.1.tar.gz',
     install_requires=[
         'cloudpickle',
         'gym[atari,box2d,classic_control]',
@@ -31,4 +34,5 @@ setup(
     ],
     description="research on stochastic differential equations and deep RL.",
     author="Xiaohan Zhang",
+    packages=find_packages()
 )
