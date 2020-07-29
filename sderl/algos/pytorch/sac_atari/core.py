@@ -32,7 +32,7 @@ def mlp(sizes, activation, output_activation=nn.Identity):
 
 def cnn(obs_dim, channels=[16,32,32], activation=nn.ReLU()):
     layers = []
-    sizes = [obs_dim] + channels
+    sizes = [obs_dim[0]] + channels
     for j in range(len(sizes)-1):
         layers += [nn.Conv2d(sizes[j], sizes[j+1], kernel_size=3, stride=1, padding=(1,1)), activation]
     layers += [ nn.AdaptiveAvgPool2d(4), Flatten() ]  # 4 * 4 * 32 = 512
@@ -60,8 +60,8 @@ class SquashedGaussianMLPActor(nn.Module):
     def __init__(self, obs_dim, act_dim, hidden_sizes, activation, act_limit, feng):
         super().__init__()
         if feng == 'mlp':
-            self.fe_net = nn.Identity()
-            feat_dim = obs_dim
+            self.fe_net = Flatten() # nn.Identity()
+            feat_dim = np.prod(obs_dim)
         elif feng == 'cnn':
             self.fe_net, feat_dim = cnn(obs_dim)
         self.net = mlp([feat_dim] + list(hidden_sizes), activation, activation)
@@ -107,20 +107,20 @@ class CategoricalMLPActor(nn.Module):
     def __init__(self, obs_dim, act_dim, hidden_sizes, activation, feng):
         super().__init__()
         if feng == 'mlp':
-            self.fe_net = nn.Identity()
-            feat_dim = obs_dim
+            self.fe_net = Flatten() # nn.Identity()
+            feat_dim = np.prod(obs_dim)
         elif feng == 'cnn':
             self.fe_net, feat_dim = cnn(obs_dim)
 
-        self.logits_net = mlp([feat_dim] + list(hidden_sizes) + [act_dim], activation)
+        self.logits_net = mlp([feat_dim] + list(hidden_sizes) + [act_dim], activation, output_activation=nn.Tanh)
 
     def forward(self, obs, deterministic=False, with_logprob=True):
-        logits = F.softmax(self.logits_net(self.fe_net(obs)), dim=1)
+        logits = self.logits_net(self.fe_net(obs))
         pi_distribution = Categorical(logits=logits)
 
         if deterministic:
             # Only used for evaluating policy at test time.
-            pi_action = torch.squeeze(torch.argmax(logits, dim=1, keepdim=False), -1)
+            pi_action = torch.squeeze(torch.argmax(logits, dim=-1, keepdim=True), -1)
         else:
             pi_action = torch.squeeze(pi_distribution.sample(), -1)
 
@@ -136,8 +136,8 @@ class MLPQFunction(nn.Module):
     def __init__(self, obs_dim, act_dim, hidden_sizes, activation, feng):
         super().__init__()
         if feng == 'mlp':
-            self.fe_net = nn.Identity()
-            feat_dim = obs_dim
+            self.fe_net = Flatten() # nn.Identity()
+            feat_dim = np.prod(obs_dim)
         elif feng == 'cnn':
             self.fe_net, feat_dim = cnn(obs_dim)
 
@@ -145,7 +145,8 @@ class MLPQFunction(nn.Module):
         self.act_dim = act_dim
 
     def forward(self, obs, act):
-        act = (F.one_hot(act.to(torch.int64),num_classes=self.act_dim)).to(torch.float32)
+        if len(act.shape) == 1: # discrete action
+            act = (F.one_hot(act.to(torch.int64),num_classes=self.act_dim)).to(torch.float32)
         q = self.q(torch.cat([self.fe_net(obs), act], dim=-1))
         return torch.squeeze(q, -1) # Critical to ensure q has right shape.
 
@@ -155,12 +156,11 @@ class MLPActorCritic(nn.Module):
                  activation=nn.ReLU, feng='mlp'):
         super().__init__()
 
-        obs_dim = observation_space.shape[0]
+        obs_dim = observation_space.shape # [0]
 
         if isinstance(action_space, Box):
             act_dim = action_space.shape[0]
             act_limit = action_space.high[0]
-
         elif isinstance(action_space, Discrete):
             act_dim = action_space.n
 

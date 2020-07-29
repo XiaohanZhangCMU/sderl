@@ -275,7 +275,8 @@ def sac_atari(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0
 
     def get_action(o, deterministic=False):
         o = np.expand_dims(o, axis=0)
-        return ac.act(torch.as_tensor(o, dtype=torch.float32).to(device), deterministic)
+        a = ac.act(torch.as_tensor(o, dtype=torch.float32), deterministic)
+        return np.squeeze(a, axis=0)
 
     def test_agent():
         for j in range(num_test_episodes):
@@ -363,7 +364,7 @@ if __name__ == '__main__':
     parser.add_argument('--env', type=str, default='Pong-v0')
     parser.add_argument('--feng', type=str, default='mlp')
     parser.add_argument('--hid', type=int, default=64)
-    parser.add_argument('--l', type=int, default=1)
+    parser.add_argument('--l', type=int, default=2)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--seed', '-s', type=int, default=0)
     parser.add_argument('--steps', type=int, default=4000)
