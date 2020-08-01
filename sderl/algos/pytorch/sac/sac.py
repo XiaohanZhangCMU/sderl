@@ -372,5 +372,5 @@ if __name__ == '__main__':
     torch.set_num_threads(torch.get_num_threads())
 
     sac(lambda : gym.make(args.env), actor_critic=core.MLPActorCritic,
-        ac_kwargs=dict(hidden_sizes=[args.hid]*args.l),
+        ac_kwargs=dict(hidden_sizes=[args.hid]*args.l, activation=torch.nn.ReLU),
         gamma=args.gamma, batch_size=256, seed=args.seed, steps_per_epoch=args.steps, update_after=args.update_after, epochs=args.epochs, logger_kwargs=logger_kwargs)
