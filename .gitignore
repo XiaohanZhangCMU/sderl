@@ -13,3 +13,4 @@ lib64
 sderl.egg-info/*
 data/*
 output_dir/*
+*.ipynb
