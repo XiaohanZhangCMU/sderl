@@ -1,4 +1,7 @@
-# Credit for TF-DQN: github.com/axitkhurana/spinningup/spinup/algos/dqn
+# Credits for:
+#     TF-DQN: github.com/axitkhurana/spinningup/spinup/algos/dqn
+#     Pytorch-DQN: github.com/kashif/firedup/firedup/algos/dqn
+
 from copy import deepcopy
 import itertools
 import numpy as np
