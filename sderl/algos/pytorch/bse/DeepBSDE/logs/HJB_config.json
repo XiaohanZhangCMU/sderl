@@ -1,0 +1,32 @@
+{
+  "batch_size": 64,
+  "dim": 100,
+  "logging_frequency": 100,
+  "lr_boundaries": [
+    400
+  ],
+  "lr_values": [
+    0.01,
+    0.01
+  ],
+  "n_layer": 4,
+  "num_hiddens": [
+    100,
+    110,
+    110,
+    100
+  ],
+  "num_iterations": 200000,
+  "num_time_interval": 3,
+  "step_boundaries": [
+    2000,
+    4000
+  ],
+  "total_time": 1.0,
+  "valid_size": 256,
+  "verbose": true,
+  "y_init_range": [
+    0,
+    1
+  ]
+}
