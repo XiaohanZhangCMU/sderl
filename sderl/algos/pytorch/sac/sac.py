@@ -2,24 +2,26 @@ from copy import deepcopy
 import itertools
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.optim import Adam
 import gym
 import time
 import sderl.algos.pytorch.sac.core as core
 from sderl.utils.logx import EpochLogger
-
+from sderl.utils.run_utils import seed_torch
+import time
 
 class ReplayBuffer:
     """
     A simple FIFO experience replay buffer for SAC agents.
     """
 
-    def __init__(self, obs_dim, act_dim, size, device):
-        self.obs_buf = np.zeros(core.combined_shape(size, obs_dim), dtype=np.float32)
-        self.obs2_buf = np.zeros(core.combined_shape(size, obs_dim), dtype=np.float32)
-        self.act_buf = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
+    def __init__(self, obs_dim, act_dim, size, device, env):
+        self.obs_buf = np.empty(core.combined_shape(size, obs_dim), dtype=env.observation_space.dtype)
+        self.obs2_buf = np.empty(core.combined_shape(size, obs_dim), dtype=env.observation_space.dtype)
+        self.act_buf = np.zeros(core.combined_shape(size, act_dim), dtype=env.action_space.dtype)
         self.rew_buf = np.zeros(size, dtype=np.float32)
-        self.done_buf = np.zeros(size, dtype=np.float32)
+        self.done_buf = np.zeros(size, dtype=np.bool)
         self.ptr, self.size, self.max_size = 0, 0, size
         self.device = device
 
@@ -34,12 +36,11 @@ class ReplayBuffer:
 
     def sample_batch(self, batch_size=32):
         idxs = np.random.randint(0, self.size, size=batch_size)
-        batch = dict(obs=self.obs_buf[idxs],
-                     obs2=self.obs2_buf[idxs],
-                     act=self.act_buf[idxs],
-                     rew=self.rew_buf[idxs],
-                     done=self.done_buf[idxs])
-        return {k: torch.as_tensor(v, dtype=torch.float32).to(self.device) for k,v in batch.items()}
+        return dict(obs =torch.as_tensor(self.obs_buf[idxs],  dtype=torch.float32).to(self.device),
+                    obs2=torch.as_tensor(self.obs2_buf[idxs], dtype=torch.float32).to(self.device),
+                    act =torch.as_tensor(self.act_buf[idxs],  dtype=torch.float32).to(self.device),
+                    rew =torch.as_tensor(self.rew_buf[idxs],  dtype=torch.float32).to(self.device),
+                    done=torch.as_tensor(self.done_buf[idxs], dtype=torch.float32).to(self.device))
 
 
 def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
@@ -151,12 +152,18 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     if torch.cuda.is_available():
         logger.log('\nuse GPU')
 
-    torch.manual_seed(seed)
-    np.random.seed(seed)
 
     env, test_env = env_fn(), env_fn()
+
+    # For reproduciability
+    env.seed(seed)
+    test_env.seed(seed)
+    seed_torch(seed)
+
     obs_dim = env.observation_space.shape
-    act_dim = env.action_space.shape[0]
+    act_dim = env.action_space.shape
+
+    act_is_cont = isinstance(env.action_space, gym.spaces.Box)
 
     # Action limit for clamping: critically, assumes all dimensions share the same bound!
     # act_limit = env.action_space.high[0]
@@ -164,6 +171,9 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Create actor-critic module and target networks
     ac = actor_critic(env.observation_space, env.action_space, **ac_kwargs)
     ac_targ = deepcopy(ac)
+
+    #ac.load_state_dict(torch.load('ac_t0'))
+    #ac_targ.load_state_dict(torch.load('ac_targ_t0'))
 
     ac = ac.to(device)
     ac_targ = ac_targ.to(device)
@@ -176,7 +186,7 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     q_params = itertools.chain(ac.q1.parameters(), ac.q2.parameters())
 
     # Experience buffer
-    replay_buffer = ReplayBuffer(obs_dim=obs_dim, act_dim=act_dim, size=replay_size, device=device)
+    replay_buffer = ReplayBuffer(obs_dim=obs_dim, act_dim=act_dim, size=replay_size, device=device, env=env)
 
     # Count variables (protip: try to get a feel for how different size networks behave!)
     var_counts = tuple(core.count_vars(module) for module in [ac.pi, ac.q1, ac.q2])
@@ -186,19 +196,30 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     def compute_loss_q(data):
         o, a, r, o2, d = data['obs'], data['act'], data['rew'], data['obs2'], data['done']
 
-        q1 = ac.q1(o,a)
-        q2 = ac.q2(o,a)
+        if act_is_cont:
+            q1 = ac.q1(o,a)
+            q2 = ac.q2(o,a)
+        else:
+            q1 = ac.q1(o,a).gather(1, a.unsqueeze(-1).long()).squeeze()
+            q2 = ac.q2(o,a).gather(1, a.unsqueeze(-1).long()).squeeze()
 
         # Bellman backup for Q functions
         with torch.no_grad():
             # Target actions come from *current* policy
-            a2, logp_a2 = ac.pi(o2)
+            a2, logp_a2, pa2 = ac.pi(o2)
 
             # Target Q-values
             q1_pi_targ = ac_targ.q1(o2, a2)
             q2_pi_targ = ac_targ.q2(o2, a2)
             q_pi_targ = torch.min(q1_pi_targ, q2_pi_targ)
-            backup = r + gamma * (1 - d) * (q_pi_targ - alpha * logp_a2)
+
+            if act_is_cont:
+                term = q_pi_targ - alpha * logp_a2 # Continuous
+            else:
+                term = torch.mul(pa2, (q_pi_targ - alpha * logp_a2))
+                term = torch.sum(term, dim=-1)
+
+            backup = r + gamma * (1 - d) * (term)
 
         # MSE loss against Bellman backup
         loss_q1 = ((q1 - backup)**2).mean()
@@ -213,13 +234,18 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Set up function for computing SAC pi loss
     def compute_loss_pi(data):
         o = data['obs']
-        pi, logp_pi = ac.pi(o)
+        pi, logp_pi, pa = ac.pi(o)
         q1_pi = ac.q1(o, pi)
         q2_pi = ac.q2(o, pi)
         q_pi = torch.min(q1_pi, q2_pi)
 
         # Entropy-regularized policy loss
-        loss_pi = (alpha * logp_pi - q_pi).mean()
+        if act_is_cont:
+            term = (alpha * logp_pi - q_pi) # Continous
+        else:
+            term = torch.sum(pa * (alpha * logp_pi - q_pi), dim=-1)
+
+        loss_pi = term.mean()
 
         # Useful info for logging
         pi_info = {} # dict(LogPi=logp_pi.cpu().detach().numpy())
@@ -270,7 +296,9 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 p_targ.data.add_((1 - polyak) * p.data)
 
     def get_action(o, deterministic=False):
-        return ac.act(torch.as_tensor(o, dtype=torch.float32).to(device), deterministic)
+        o = np.expand_dims(o, axis=0)
+        a = ac.act(torch.as_tensor(o, dtype=torch.float32).to(device), deterministic)
+        return np.squeeze(a, axis=0)
 
     def test_agent():
         for j in range(num_test_episodes):
@@ -320,14 +348,22 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             logger.store(EpRet=ep_ret, EpLen=ep_len)
             o, ep_ret, ep_len = env.reset(), 0, 0
 
+
         # Update handling
-        if t >= update_after and t % update_every == 0:
-            for j in range(update_every):
+        if False: # For discrete action space
+            if t > update_after:
                 batch = replay_buffer.sample_batch(batch_size)
                 update(data=batch)
 
+        if True: # For continuous action space
+            if t >= update_after and t % update_every == 0:
+                for j in range(update_every):
+                    batch = replay_buffer.sample_batch(batch_size)
+                    update(data=batch)
+
+
         # End of epoch handling
-        if (t+1) % steps_per_epoch == 0:
+        if t >= update_after and (t+1) % steps_per_epoch == 0:
             epoch = (t+1) // steps_per_epoch
 
             # Save model
@@ -355,13 +391,19 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--env', type=str, default='HalfCheetah-v2')
+    parser.add_argument('--env', type=str, default='Pong-v0')
+    parser.add_argument('--feng', type=str, default='mlp')
     parser.add_argument('--hid', type=int, default=64)
     parser.add_argument('--l', type=int, default=2)
+    parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--gamma', type=float, default=0.99)
+    parser.add_argument('--alpha', type=float, default=1.0)
     parser.add_argument('--seed', '-s', type=int, default=0)
+    parser.add_argument('--replay_size', type=int, default=int(1e6))
     parser.add_argument('--steps', type=int, default=4000)
-    parser.add_argument('--update_after', type=int, default=1000)
+    parser.add_argument('--update_after', type=int, default=5000)
+    parser.add_argument('--update_every', type=int, default=50)
+    parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--exp_name', type=str, default='sac')
     args = parser.parse_args()
@@ -371,6 +413,14 @@ if __name__ == '__main__':
 
     torch.set_num_threads(torch.get_num_threads())
 
-    sac(lambda : gym.make(args.env), actor_critic=core.MLPActorCritic,
-        ac_kwargs=dict(hidden_sizes=[args.hid]*args.l, activation=torch.nn.ReLU),
-        gamma=args.gamma, batch_size=256, seed=args.seed, steps_per_epoch=args.steps, update_after=args.update_after, epochs=args.epochs, logger_kwargs=logger_kwargs)
+    genv = gym.make(args.env)
+    if 'Atari' in str(genv.env):
+        from sderl.utils.atari_wrappers import make_env
+        lambda_env = lambda:make_env(args.env)
+        print('Use Atarti Wrapper')
+    else:
+        lambda_env = lambda:gym.make(args.env)
+
+    sac(lambda_env, actor_critic=core.MLPActorCritic,
+        ac_kwargs=dict(hidden_sizes=[args.hid]*args.l, activation=torch.nn.ReLU, feng=args.feng),
+        alpha=args.alpha, gamma=args.gamma, lr=args.lr, batch_size=args.batch_size, replay_size=args.replay_size, seed=args.seed, steps_per_epoch=args.steps, update_after=args.update_after, update_every=args.update_every, epochs=args.epochs, logger_kwargs=logger_kwargs)
