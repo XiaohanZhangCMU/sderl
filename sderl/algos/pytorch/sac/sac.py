@@ -172,6 +172,8 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     ac = actor_critic(env.observation_space, env.action_space, **ac_kwargs)
     ac_targ = deepcopy(ac)
 
+    logger.log(ac.q1)
+
     #ac.load_state_dict(torch.load('ac_t0'))
     #ac_targ.load_state_dict(torch.load('ac_targ_t0'))
 
