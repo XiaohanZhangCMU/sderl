@@ -1,8 +1,11 @@
 import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True' # This is to fix libiomp5.dylib problem running OMP on mac
 
+import pickle
 import logging
+import collections
 
+import itertools
 import numpy as np
 import torch
 from torch.optim import Adam
@@ -27,34 +30,18 @@ def wind(bsde, config):
     # make sure consistent with FBSDE equation
     dim = bsde.dim
 
-    lo = torch.tensor([config.y_init_range[0]], dtype=torch.float64)
-    hi = torch.tensor([config.y_init_range[1]], dtype=torch.float64)
-    y_init = torch.distributions.uniform.Uniform(lo, hi, validate_args=None)
-
-    print('minval = {0}, maxval = {1}'.format(config.y_init_range[0], config.y_init_range[1]))
-
-    lo = -.1 * torch.ones(1,dim, dtype=torch.float64)
-    hi =  .1 * torch.ones(1,dim, dtype=torch.float64)
-    z_init = torch.distributions.uniform.Uniform(lo, hi, validate_args=None)
-
-    y_init_val = y_init.sample()
-    y_init_val.requires_grad=True
-    z_init_val = z_init.sample()
-    z_init_val.requires_grad=True
-
     # Set up function for computing Wind policy loss
-    def compute_loss(ac, dw, x):
+    def compute_loss(dw, x):
         time_stamp = np.arange(0, bsde.num_time_interval) * bsde.delta_t
 
-        all_one_vec = torch.ones([dw.shape[0],1], dtype=torch.float64)
-        y = all_one_vec * y_init_val
-        z = all_one_vec * z_init_val
+        y = ac.v(x[:,:,0])
 
         for t in range(0, bsde.num_time_interval-1):
+            z = (ac.pi(x[:, :, t]))[0] / dim
             y = y - bsde.delta_t * (
                 bsde.f_tf(time_stamp[t], x[:, :, t], y, z)
             ) + torch.sum(z * dw[:, :, t], 1, keepdim=True)
-            z = ac.pi(x[:, :, t + 1]) / dim
+
         # terminal time
         y = y - bsde.delta_t * bsde.f_tf(
             time_stamp[-1], x[:, :, -2], y, z
@@ -65,55 +52,78 @@ def wind(bsde, config):
         return loss
 
     def update(dw_train, x_train):
-        loss = compute_loss(ac, dw_train, x_train)
         optimizer.zero_grad()
+        loss = compute_loss(dw_train, x_train)
         loss.backward()
         optimizer.step()
         scheduler.step()
 
+    def accuracy():
+        with torch.no_grad():
+            preds = (ac.v(torch.as_tensor(mc_x[:300, :], dtype=torch.float64))).numpy()
+            error = np.mean(np.abs(preds - mc_y))
+            return error
+
     # Set up optimizers for policy and value function
     ac = core.MLPActorCritic(config)
+    sync_params(ac)
+
     lr_lambda = lambda epoch: config.lr_values[0] if epoch < config.lr_boundaries[0] else config.lr_values[1]
+
     print('number of params = ', core.count_parameters(ac))
     core.print_parameters(ac)
-    optimizer = torch.optim.Adam([y_init_val, z_init_val]+list(ac.parameters()), lr=1)
+
+    params = itertools.chain(ac.pi.parameters(), ac.v.parameters())
+    optimizer = torch.optim.Adam(params, lr=1.)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda) # what is initial learning rate?
 
     # Set up model saving
-    training_history = []
+    training_history = collections.defaultdict()
 
-    print('I am here 1')
+    mc_valid = np.load('mc_results_0.npy')
 
-    dw_valid, x_valid = bsde.sample(config.valid_size)
+    mc_x, mc_y = mc_valid[:300,:dim], mc_valid[:300,-1]
 
     # Main loop: collect experience in env and update/log each epoch
     start_time = time.time()
-    print('I am here 2', config.num_iterations)
+
+    lo = -1. * torch.ones(dim, dtype=torch.float64)
+    hi =  1. * torch.ones(dim, dtype=torch.float64)
+    x_init = torch.distributions.uniform.Uniform(lo, hi, validate_args=None)
+
     for epoch in range(config.num_iterations+1):
 
-        dw_train, x_train = bsde.sample(config.batch_size)
+        if epoch == 0:
+            x0 = np.zeros(dim)
+        else:
+            x0 = x_init.sample().numpy()
 
-        # Perform Wind update!
-        update(dw_train, x_train)
+        dw_valid, x_valid = bsde.sample(config.valid_size, x0)
 
-        if epoch % config.logging_frequency == 0:
-            loss = compute_loss(ac, dw_valid, x_valid)
-            loss_val = loss.item()
-            init = y_init_val.item()
-            elapsed_time = time.time()-start_time
-            training_history.append([epoch, loss, init, elapsed_time])
-            if config.verbose:
-                print("epoch: %5u,    loss: %.4e,   Y0: %.4e,  elapsed time %3u" % (
-                    epoch, loss, init, elapsed_time))
+        for itr in range(config.train_iters):
+            dw_train, x_train = bsde.sample(config.batch_size, x0)
+
+            # Perform Wind update!
+            update(dw_train, x_train)
+
+            if itr % config.logging_frequency == 0:
+                loss = compute_loss(dw_valid, x_valid)
+                loss_val = loss.item()
+                init = ac.v(x_valid[:,:,0]).mean(axis=0).item()
+                elapsed_time = time.time()-start_time
+                training_history[epoch]=[itr, loss, init, elapsed_time]
+                if config.verbose:
+                    print("\titer: %5u, loss: %.4e, Y0: %.4e, elapsed time %3u" % (
+                        itr, loss, init, elapsed_time))
+        print("epoch: %5u, error: %.4e, mc_y: %.4e, init: %.4e" % (epoch, accuracy(), mc_y[epoch], init))
+        with open('training_history.pickle', 'wb') as handle:
+            pickle.dump(training_history, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--env', type=str, default='HJB')
-    parser.add_argument('--hid', type=int, default=64)
-    parser.add_argument('--l', type=int, default=2)
-    parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--seed', '-s', type=int, default=0)
     parser.add_argument('--cpu', type=int, default=4)
     parser.add_argument('--steps', type=int, default=4000)

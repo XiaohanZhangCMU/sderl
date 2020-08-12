@@ -84,7 +84,7 @@ class HJB(Equation):
         super(HJB, self).__init__(dim, total_time, num_time_interval)
         #self._x_init = np.zeros(self._dim)
         self._sigma = np.sqrt(2.0)
-        self._lambda = 50
+        self._lambda = 1.0 # 50
 
     def sample(self, num_sample, x0):
 

@@ -28,7 +28,7 @@ class HJBConfig(Config):
     dim = 100
     total_time = 1.0
     num_time_interval = 3
-    train_iters=3000
+    train_iters=300
     lr_boundaries = [400]
     num_iterations = 200000
     lr_values = list(np.array([1e-2, 1e-2]))

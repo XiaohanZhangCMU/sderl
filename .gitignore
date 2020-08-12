@@ -17,3 +17,4 @@ output_dir/*
 *.csv
 *.json
 *.npy
+*.pickle
