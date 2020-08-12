@@ -58,9 +58,9 @@ def wind(bsde, config):
         optimizer.step()
         scheduler.step()
 
-    def accuracy():
+    def accuracy(mc_x, mc_y):
         with torch.no_grad():
-            preds = (ac.v(torch.as_tensor(mc_x[:300, :], dtype=torch.float64))).numpy()
+            preds = (ac.v(torch.as_tensor(mc_x, dtype=torch.float64))).numpy()
             error = np.mean(np.abs(preds - mc_y))
             return error
 
@@ -80,15 +80,15 @@ def wind(bsde, config):
     # Set up model saving
     training_history = collections.defaultdict()
 
-    mc_valid = np.load('mc_results_0.npy')
-
-    mc_x, mc_y = mc_valid[:300,:dim], mc_valid[:300,-1]
+    mc_valid = np.load('mc_results_-100_100_0.npy')
+    mc_x, mc_y = mc_valid[:130,:dim], mc_valid[:130,-1]
+    assert(mc_y[-1]!=0)
 
     # Main loop: collect experience in env and update/log each epoch
     start_time = time.time()
 
-    lo = -1. * torch.ones(dim, dtype=torch.float64)
-    hi =  1. * torch.ones(dim, dtype=torch.float64)
+    lo = -100. * torch.ones(dim, dtype=torch.float64)
+    hi =  100. * torch.ones(dim, dtype=torch.float64)
     x_init = torch.distributions.uniform.Uniform(lo, hi, validate_args=None)
 
     for epoch in range(config.num_iterations+1):
@@ -115,7 +115,7 @@ def wind(bsde, config):
                 if config.verbose:
                     print("\titer: %5u, loss: %.4e, Y0: %.4e, elapsed time %3u" % (
                         itr, loss, init, elapsed_time))
-        print("epoch: %5u, error: %.4e, mc_y: %.4e, init: %.4e" % (epoch, accuracy(), mc_y[epoch], init))
+        print("epoch: %5u, error: %.4e" % (epoch, accuracy(mc_x, mc_y)))
         with open('training_history.pickle', 'wb') as handle:
             pickle.dump(training_history, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
