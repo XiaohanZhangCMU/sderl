@@ -34,7 +34,7 @@ def wind(bsde, config):
     def compute_loss(dw, x):
         time_stamp = np.arange(0, bsde.num_time_interval) * bsde.delta_t
 
-        y = ac.v(x[:,:,0])
+        y = ac.v(x[:,:,0]) 
 
         for t in range(0, bsde.num_time_interval-1):
             z = (ac.pi(x[:, :, t]))[0] / dim
@@ -60,9 +60,11 @@ def wind(bsde, config):
 
     def accuracy(mc_x, mc_y):
         with torch.no_grad():
-            preds = (ac.v(torch.as_tensor(mc_x, dtype=torch.float64))).numpy()
-            error = np.mean(np.abs(preds - mc_y))
-            return error
+            preds = (ac.v(torch.as_tensor(mc_x, dtype=torch.float64))).numpy().squeeze()
+            mse = ((mc_y - preds)**2).sum(axis=0).squeeze()
+            bse = ((np.average(mc_y, axis=0) - preds)**2).sum(axis=0).squeeze()
+            r2 = 1.0 - mse / bse 
+            return mse/mc_y.shape[0], r2
 
     # Set up optimizers for policy and value function
     ac = core.MLPActorCritic(config)
@@ -80,15 +82,16 @@ def wind(bsde, config):
     # Set up model saving
     training_history = collections.defaultdict()
 
-    mc_valid = np.load('mc_results_-100_100_0.npy')
-    mc_x, mc_y = mc_valid[:130,:dim], mc_valid[:130,-1]
+    #mc_valid = np.load('mc_results_-100_100_0.npy')
+    mc_valid = np.load('mc_results_0.npy')
+    mc_x, mc_y = mc_valid[:2300,:dim], mc_valid[:2300,-1]
     assert(mc_y[-1]!=0)
 
     # Main loop: collect experience in env and update/log each epoch
     start_time = time.time()
 
-    lo = -100. * torch.ones(dim, dtype=torch.float64)
-    hi =  100. * torch.ones(dim, dtype=torch.float64)
+    lo = -1. * torch.ones(dim, dtype=torch.float64)
+    hi =  1. * torch.ones(dim, dtype=torch.float64)
     x_init = torch.distributions.uniform.Uniform(lo, hi, validate_args=None)
 
     for epoch in range(config.num_iterations+1):
@@ -115,10 +118,11 @@ def wind(bsde, config):
                 if config.verbose:
                     print("\titer: %5u, loss: %.4e, Y0: %.4e, elapsed time %3u" % (
                         itr, loss, init, elapsed_time))
-        print("epoch: %5u, error: %.4e" % (epoch, accuracy(mc_x, mc_y)))
+
+        mse, r2 = accuracy(mc_x, mc_y)
+        print("epoch: %5u, mse: %.4e, r2: %.4e" % (epoch, mse, r2))
         with open('training_history.pickle', 'wb') as handle:
             pickle.dump(training_history, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
 
 if __name__ == '__main__':
     import argparse
