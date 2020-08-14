@@ -54,7 +54,7 @@ def wind(bsde, config):
             y = y - bsde.delta_t * (
                 bsde.f_tf(time_stamp[t], x[:, :, t], y, z)
             ) + torch.sum(z * dw[:, :, t], 1, keepdim=True)
-            z = ac.pi(x[:, :, t + 1]) / dim
+            z = ac.pi(x[:, :, t + 1])[0] / dim
         # terminal time
         y = y - bsde.delta_t * bsde.f_tf(
             time_stamp[-1], x[:, :, -2], y, z

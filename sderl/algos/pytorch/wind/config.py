@@ -15,6 +15,7 @@ class Config(object):
 class AllenCahnConfig(Config):
     total_time = 0.3
     num_time_interval = 20
+    train_iters=15000
     dim = 100
     lr_values = list(np.array([5e-4, 5e-4]))
     lr_boundaries = [2000]

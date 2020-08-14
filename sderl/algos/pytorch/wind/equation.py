@@ -59,15 +59,15 @@ def get_equation(name, dim, total_time, num_time_interval):
 class AllenCahn(Equation):
     def __init__(self, dim, total_time, num_time_interval):
         super(AllenCahn, self).__init__(dim, total_time, num_time_interval)
-        self._x_init = np.zeros(self._dim)
+        self._x_init = np.ones(self._dim)
         self._sigma = np.sqrt(2.0)
 
-    def sample(self, num_sample):
+    def sample(self, num_sample, x0):
         dw_sample = normal.rvs(size=[num_sample,
                                      self._dim,
                                      self._num_time_interval]) * self._sqrt_delta_t
         x_sample = np.zeros([num_sample, self._dim, self._num_time_interval + 1])
-        x_sample[:, :, 0] = np.ones([num_sample, self._dim]) * self._x_init
+        x_sample[:, :, 0] = np.ones([num_sample, self._dim]) * x0
         for i in range(self._num_time_interval):
             x_sample[:, :, i + 1] = x_sample[:, :, i] + self._sigma * dw_sample[:, :, i]
         return torch.as_tensor(dw_sample, dtype=torch.float64), torch.as_tensor(x_sample, dtype=torch.float64)

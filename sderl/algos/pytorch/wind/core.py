@@ -86,26 +86,6 @@ class MLPCritic(nn.Module):
         return self.v_net(obs)
 
 
-#class MLPActor(nn.Module):
-#    def __init__(self, config):
-#        super().__init__()
-#
-#        sizes = config.num_hiddens
-#        layers = []
-#        for j in range(len(sizes)-1):
-#            act = nn.ReLU if j < len(sizes)-2 else nn.Identity
-#            layers += [nn.BatchNorm1d(sizes[j], affine=True), nn.Linear(sizes[j], sizes[j+1], bias=False), act()]
-#        layers += [nn.BatchNorm1d(sizes[-1], affine=True)]
-#        self.pi_net = nn.Sequential(*layers).double()
-#
-#        def init_weights(m):
-#            if type(m) == nn.Linear:
-#                torch.nn.init.xavier_uniform(m.weight)
-#        self.pi_net.apply(init_weights)
-#
-#    def forward(self, obs):
-#        return self.pi_net(obs)
-
 class MLPActor(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -116,21 +96,41 @@ class MLPActor(nn.Module):
             act = nn.ReLU if j < len(sizes)-2 else nn.Identity
             layers += [nn.BatchNorm1d(sizes[j], affine=True), nn.Linear(sizes[j], sizes[j+1], bias=False), act()]
         layers += [nn.BatchNorm1d(sizes[-1], affine=True)]
-        self.mu_net = nn.Sequential(*layers).double()
-        log_std = -5 * np.ones(sizes[0], dtype=np.double)
-        self.log_std = torch.nn.Parameter(torch.as_tensor(log_std))
+        self.pi_net = nn.Sequential(*layers).double()
 
         def init_weights(m):
             if type(m) == nn.Linear:
                 torch.nn.init.xavier_uniform(m.weight)
-        self.mu_net.apply(init_weights)
+        self.pi_net.apply(init_weights)
 
     def forward(self, obs):
-        mu = self.mu_net(obs)
-        std = torch.exp(self.log_std)
-        dist = Normal(mu, std)
-        act = dist.sample()
-        return act, dist.log_prob(act).sum(axis=-1)
+        return self.pi_net(obs), 0
+
+#class MLPActor(nn.Module):
+#    def __init__(self, config):
+#        super().__init__()
+#
+#        sizes = config.num_hiddens
+#        layers = []
+#        for j in range(len(sizes)-1):
+#            act = nn.ReLU if j < len(sizes)-2 else nn.Identity
+#            layers += [nn.BatchNorm1d(sizes[j], affine=True), nn.Linear(sizes[j], sizes[j+1], bias=False), act()]
+#        layers += [nn.BatchNorm1d(sizes[-1], affine=True)]
+#        self.mu_net = nn.Sequential(*layers).double()
+#        log_std = -5 * np.ones(sizes[0], dtype=np.double)
+#        self.log_std = torch.nn.Parameter(torch.as_tensor(log_std))
+#
+#        def init_weights(m):
+#            if type(m) == nn.Linear:
+#                torch.nn.init.xavier_uniform(m.weight)
+#        self.mu_net.apply(init_weights)
+#
+#    def forward(self, obs):
+#        mu = self.mu_net(obs)
+#        std = torch.exp(self.log_std)
+#        dist = Normal(mu, std)
+#        act = dist.sample()
+#        return act, dist.log_prob(act).sum(axis=-1)
 
 class MLPActorCritic(nn.Module):
 
