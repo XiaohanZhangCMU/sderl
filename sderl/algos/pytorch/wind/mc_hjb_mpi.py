@@ -19,6 +19,8 @@ from scipy.stats import multivariate_normal as normal
 from sderl.utils.run_utils import seed_torch
 from sderl.utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs
 
+import random
+
 
 MOMENTUM = 0.99
 EPSILON = 1e-6
@@ -42,7 +44,11 @@ def mc(bsde, config):
     seed_torch(int(my_proc_id))
     lo = -1. * torch.ones(dim, dtype=torch.float64)
     hi =  1. * torch.ones(dim, dtype=torch.float64)
-    x_init = torch.distributions.uniform.Uniform(lo, hi, validate_args=None)
+    x_init_un = torch.distributions.uniform.Uniform(lo, hi, validate_args=None)
+
+    loc = torch.zeros(bsde._dim)
+    scale = torch.ones(bsde._dim)
+    x_init_gs = torch.distributions.normal.Normal(loc, scale)
 
     sqrtT = np.sqrt(bsde._total_time)
     #print('total_time = %.4e' % bsde._total_time)
@@ -60,10 +66,17 @@ def mc(bsde, config):
 
     for epoch in range(num_iterations):
 
-        if epoch == 0:
-            x0 = np.zeros(bsde._dim)
-        else:
-            x0 = x_init.sample().numpy()
+        # A werid way to get a valid dataset with large variation in u(x)
+        d = np.random.randint(0,bsde._dim)
+        e = np.random.uniform(-10,10, size=1)
+        x0 = np.ones(bsde._dim)
+        x0 = x0 *e
+
+        # uniform sampling
+        # if epoch == 0:
+        #     x0 = np.zeros(bsde._dim)
+        # else:
+        #     x0 = x_init.sample().numpy()
 
         x0s = np.repeat(x0.reshape(1,-1),  chunk_size, axis=0)
         res = 0
