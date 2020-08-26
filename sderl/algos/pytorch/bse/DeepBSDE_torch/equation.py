@@ -253,10 +253,10 @@ class ReactionDiffusion(Equation):
         x_sample[:, :, 0] = np.ones([num_sample, self._dim]) * self._x_init
         for i in range(self._num_time_interval):
             x_sample[:, :, i + 1] = x_sample[:, :, i] + dw_sample[:, :, i]
-        return dw_sample, x_sample
+        return torch.as_tensor(dw_sample, dtype=torch.float64), torch.as_tensor(x_sample, dtype=torch.float64)
 
     def f_tf(self, t, x, y, z):
-        exp_term = torch.exp((self._lambda ** 2) * self._dim * (t - self._total_time) / 2)
+        exp_term = np.exp((self._lambda ** 2) * self._dim * (t - self._total_time) / 2)
         sin_term = torch.sin(self._lambda * torch.sum(x, 1, keepdim=True))
         temp = y - self._kappa - 1 - sin_term * exp_term
         return torch.min(torch.tensor(1.0, dtype=torch.float64), torch.pow(temp,2))
