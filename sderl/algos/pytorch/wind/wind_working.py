@@ -22,19 +22,34 @@ EPSILON = 1e-6
 DELTA_CLIP = 50.0
 
 
-def wind(bsde, config):
+def wind(env, n_validation_points, path_prefix, config, idx_run):
+
+    bsde = get_equation(env, config.dim, config.total_time, config.num_time_interval)
+    dim = bsde.dim
 
     # Special function to avoid certain slowdowns from PyTorch + MPI combo.
     setup_pytorch_for_mpi()
 
     # make sure consistent with FBSDE equation
-    dim = bsde.dim
+
+    def backward_integrate(dw, x):
+        time_stamp = np.arange(0, bsde.num_time_interval) * bsde.delta_t
+
+        y = bsde.g_tf(bsde.total_time, x[:, :, -1])
+
+        for t in range(bsde.num_time_interval-1, -1, -1):
+            z = (ac.pi(x[:, :, t]))[0] / dim
+            y = y + bsde.delta_t * (
+                bsde.f_tf(time_stamp[t], x[:, :, t], y, z)
+            ) - torch.sum(z * dw[:, :, t], 1, keepdim=True)
+        return y
+
 
     # Set up function for computing Wind policy loss
     def compute_loss(dw, x):
         time_stamp = np.arange(0, bsde.num_time_interval) * bsde.delta_t
 
-        y = ac.v(x[:,:,0]) 
+        y = ac.v(x[:,:,0])
 
         for t in range(0, bsde.num_time_interval-1):
             z = (ac.pi(x[:, :, t]))[0] / dim
@@ -59,12 +74,21 @@ def wind(bsde, config):
         scheduler.step()
 
     def accuracy(mc_x, mc_y):
+
+        preds = np.zeros(mc_y.shape)
+
         with torch.no_grad():
-            preds = (ac.v(torch.as_tensor(mc_x, dtype=torch.float64))).numpy().squeeze()
+            for i in range(mc_x.shape[0]):
+                x0 = mc_x[i,:]
+                dw_valid, x_valid = bsde.sample(config.valid_size, x0)
+                y0 = backward_integrate(dw_valid, x_valid)
+                y0 = y0.numpy().squeeze().mean()
+                preds[i] = y0
+
             mse = ((mc_y - preds)**2).sum(axis=0).squeeze()
             bse = ((np.average(mc_y, axis=0) - preds)**2).sum(axis=0).squeeze()
-            r2 = 1.0 - mse / bse 
-            return mse/mc_y.shape[0], r2
+            r2 = 1.0 - mse / bse
+            return mse/mc_y.shape[0], r2, preds
 
     # Set up optimizers for policy and value function
     ac = core.MLPActorCritic(config)
@@ -80,23 +104,33 @@ def wind(bsde, config):
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda) # what is initial learning rate?
 
     # Set up model saving
-    training_history = collections.defaultdict()
+    training_history = []
 
-    #mc_valid = np.load('mc_results_-100_100_0.npy')
-    mc_valid = np.load('mc_results_0.npy')
-    mc_x, mc_y = mc_valid[:2300,:dim], mc_valid[:2300,-1]
-    assert(mc_y[-1]!=0)
-
-    # Main loop: collect experience in env and update/log each epoch
     start_time = time.time()
 
-    lo = -1. * torch.ones(dim, dtype=torch.float64)
-    hi =  1. * torch.ones(dim, dtype=torch.float64)
+    lo = -10. * torch.ones(dim, dtype=torch.float64)
+    hi =  10. * torch.ones(dim, dtype=torch.float64)
     x_init = torch.distributions.uniform.Uniform(lo, hi, validate_args=None)
 
-    for epoch in range(config.num_iterations+1):
+    # Set up validation set
+    if "y_init_analytical" in dir(bsde):
+        print("Analytical solution is available for " + env)
+        mc_x = np.zeros((n_validation_points, dim))
+        for i in range(n_validation_points):
+            x0 = x_init.sample().numpy()
+            mc_x[i,:] = x0
+        mc_y = bsde.y_init_analytical(mc_x)
+    else:
+        # If no analytical solution available, get ground truth from Monte Carlo. E.g., HJB
+        print("Analytical solution is NOT available for " + env)
+        print("Use hjb_mc_results_0.npy for validating HJB.")
+        mc_valid = np.load('hjb_mc_results_0.npy')
+        mc_x, mc_y = mc_valid[:n_validation_points,:dim], mc_valid[:n_validation_points,-1]
+    assert(mc_y[-1]!=0)
 
-        if epoch == 0:
+    for pt in range(config.num_pts):
+
+        if pt == 0:
             x0 = np.zeros(dim)
         else:
             x0 = x_init.sample().numpy()
@@ -112,17 +146,30 @@ def wind(bsde, config):
             if itr % config.logging_frequency == 0:
                 loss = compute_loss(dw_valid, x_valid)
                 loss_val = loss.item()
-                init = ac.v(x_valid[:,:,0]).mean(axis=0).item()
+                yinit = ac.v(x_valid[:,:,0]).mean(axis=0).item()
+                mse, r2, _ = accuracy(mc_x, mc_y)
                 elapsed_time = time.time()-start_time
-                training_history[epoch]=[itr, loss, init, elapsed_time]
+                training_history.append([itr, loss, yinit, elapsed_time])
                 if config.verbose:
-                    print("\titer: %5u, loss: %.4e, Y0: %.4e, elapsed time %3u" % (
-                        itr, loss, init, elapsed_time))
+                    print("\titer: %5u, loss: %.4e, Y0: %.4e, mse: %.4e, r2: %.4e, elapsed time %3u" % (
+                        itr, loss, yinit, mse, r2, elapsed_time))
 
-        mse, r2 = accuracy(mc_x, mc_y)
-        print("epoch: %5u, mse: %.4e, r2: %.4e" % (epoch, mse, r2))
-        with open('training_history.pickle', 'wb') as handle:
-            pickle.dump(training_history, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    np.savetxt(os.path.join(path_prefix, 'training_history_{}.csv'.format(idx_run)),
+               np.array(training_history),
+               fmt=['%d', '%.5e', '%.5e', '%d'],
+               delimiter=",",
+               header="itr,loss,target_value,elapsed_time",
+               comments='')
+
+    mse, r2, preds = accuracy(mc_x, mc_y)
+
+    validation_results = np.zeros((mc_x.shape[0], mc_x.shape[1]+2))
+    validation_results[:,:dim] = mc_x
+    validation_results[:, dim] = mc_y
+    validation_results[:, dim+1] = preds
+
+    np.save(os.path.join(path_prefix, 'validation_results_{}.npy'.format(idx_run)), validation_results)
+
 
 if __name__ == '__main__':
     import argparse
@@ -131,6 +178,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', '-s', type=int, default=0)
     parser.add_argument('--cpu', type=int, default=4)
     parser.add_argument('--steps', type=int, default=4000)
+    parser.add_argument('--nvp', type=int, default=4000)
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--exp_name', type=str, default='wind')
     args = parser.parse_args()
@@ -143,5 +191,13 @@ if __name__ == '__main__':
     from config import get_config
     config = get_config(args.env)
 
-    bsde = get_equation(args.env, config.dim, config.total_time, config.num_time_interval)
-    wind(bsde, config)
+    num_run = 1
+
+    path_prefix = os.path.join('./data/wind/', args.env)
+    if not os.path.exists(path_prefix):
+        os.makedirs(path_prefix,0o777)
+
+    for idx_run in range(1, num_run+1):
+        wind(args.env, args.nvp, path_prefix, config, idx_run)
+
+

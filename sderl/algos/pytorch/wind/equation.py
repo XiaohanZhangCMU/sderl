@@ -180,12 +180,12 @@ class BurgesType(Equation):
         self._y_init = 1 - 1.0 / (1 + np.exp(0 + np.sum(self._x_init) / self._dim))
         self._sigma = self._dim + 0.0
 
-    def sample(self, num_sample):
+    def sample(self, num_sample, x0):
         dw_sample = normal.rvs(size=[num_sample,
                                      self._dim,
                                      self._num_time_interval]) * self._sqrt_delta_t
         x_sample = np.zeros([num_sample, self._dim, self._num_time_interval + 1])
-        x_sample[:, :, 0] = np.ones([num_sample, self._dim]) * self._x_init
+        x_sample[:, :, 0] = np.ones([num_sample, self._dim]) * x0 # self._x_init
         for i in range(self._num_time_interval):
             x_sample[:, :, i + 1] = x_sample[:, :, i] + self._sigma * dw_sample[:, :, i]
         return torch.as_tensor(dw_sample, dtype=torch.float64), torch.as_tensor(x_sample, dtype=torch.float64)
@@ -195,6 +195,10 @@ class BurgesType(Equation):
 
     def g_tf(self, t, x):
         return 1 - 1.0 / (1 + torch.exp(t + torch.sum(x, 1, keepdim=True) / self._dim))
+
+    def y_init_analytical(self, x):
+        x = x.reshape(-1, self._dim)
+        return 1 - 1.0 / (1 + np.exp(0 + np.sum(x, 1) / self._dim))
 
 
 class QuadraticGradients(Equation):
@@ -246,22 +250,27 @@ class ReactionDiffusion(Equation):
         self._y_init = 1 + self._kappa + np.sin(self._lambda * np.sum(self._x_init)) * np.exp(
             -self._lambda * self._lambda * self._dim * self._total_time / 2)
 
-    def sample(self, num_sample):
+    def sample(self, num_sample, x0):
         dw_sample = normal.rvs(size=[num_sample,
                                      self._dim,
                                      self._num_time_interval]) * self._sqrt_delta_t
         x_sample = np.zeros([num_sample, self._dim, self._num_time_interval + 1])
-        x_sample[:, :, 0] = np.ones([num_sample, self._dim]) * self._x_init
+        x_sample[:, :, 0] = np.ones([num_sample, self._dim]) * x0 # self._x_init
         for i in range(self._num_time_interval):
             x_sample[:, :, i + 1] = x_sample[:, :, i] + dw_sample[:, :, i]
-        return dw_sample, x_sample
+        return torch.as_tensor(dw_sample, dtype=torch.float64), torch.as_tensor(x_sample, dtype=torch.float64)
 
     def f_tf(self, t, x, y, z):
-        exp_term = torch.exp((self._lambda ** 2) * self._dim * (t - self._total_time) / 2)
+        exp_term = np.exp((self._lambda ** 2) * self._dim * (t - self._total_time) / 2)
         sin_term = torch.sin(self._lambda * torch.sum(x, 1, keepdim=True))
         temp = y - self._kappa - 1 - sin_term * exp_term
         return torch.min(torch.tensor(1.0, dtype=torch.float64), torch.pow(temp,2))
 
     def g_tf(self, t, x):
         return 1 + self._kappa + torch.sin(self._lambda * torch.sum(x, 1, keepdim=True))
+
+    def y_init_analytical(self, x):
+        x = x.reshape(-1, self._dim)
+        return 1 + self._kappa + np.sin(self._lambda * np.sum(x, axis=1)) * np.exp(
+            -self._lambda * self._lambda * self._dim * self._total_time / 2)
 
