@@ -20,7 +20,7 @@ class Equation(object):
         """Sample forward SDE."""
         raise NotImplementedError
 
-    def f_tf(self, t, x, y, z):
+    def f_tf(self, t, x, y, z, device=torch.device("cuda")):
         """Generator function in the PDE."""
         raise NotImplementedError
 
@@ -72,7 +72,7 @@ class AllenCahn(Equation):
             x_sample[:, :, i + 1] = x_sample[:, :, i] + self._sigma * dw_sample[:, :, i]
         return torch.as_tensor(dw_sample, dtype=torch.float64), torch.as_tensor(x_sample, dtype=torch.float64)
 
-    def f_tf(self, t, x, y, z):
+    def f_tf(self, t, x, y, z, device=torch.device("cuda")):
         return y - torch.pow(y, 3)
 
     def g_tf(self, t, x):
@@ -92,12 +92,12 @@ class HJB(Equation):
                                      self._dim,
                                      self._num_time_interval]) * self._sqrt_delta_t
         x_sample = np.zeros([num_sample, self._dim, self._num_time_interval + 1])
-        x_sample[:, :, 0] = np.ones([num_sample, self._dim]) * x0
+        x_sample[:, :, 0] = x0 # np.ones([num_sample, self._dim]) * x0
         for i in range(self._num_time_interval):
             x_sample[:, :, i + 1] = x_sample[:, :, i] + self._sigma * dw_sample[:, :, i]
         return torch.as_tensor(dw_sample, dtype=torch.float64), torch.as_tensor(x_sample, dtype=torch.float64)
 
-    def f_tf(self, t, x, y, z):
+    def f_tf(self, t, x, y, z, device=torch.device("cuda")):
         tmp = torch.pow(z,2)
         return -self._lambda * torch.sum(tmp, 1, keepdim=True, dtype=torch.float64)
 
@@ -129,7 +129,7 @@ class PricingOption(Equation):
             x_sample[:, :, i + 1] = (factor * np.exp(self._sigma * dw_sample[:, :, i])) * x_sample[:, :, i]
         return torch.as_tensor(dw_sample, dtype=torch.float64), torch.as_tensor(x_sample, dtype=torch.float64)
 
-    def f_tf(self, t, x, y, z):
+    def f_tf(self, t, x, y, z, device=torch.device("cuda")):
         temp = torch.sum(z, 1, keepdim=True) / self._sigma
         return -self._rl * y - (self._mu_bar - self._rl) * temp + (
             (self._rb - self._rl) * torch.max(temp - y, 0))
@@ -164,7 +164,7 @@ class PricingDefaultRisk(Equation):
                 self._sigma * x_sample[:, :, i] * dw_sample[:, :, i])
         return torch.as_tensor(dw_sample, dtype=torch.float64), torch.as_tensor(x_sample, dtype=torch.float64)
 
-    def f_tf(self, t, x, y, z):
+    def f_tf(self, t, x, y, z, device=torch.device("cuda")):
         piecewise_linear = torch.nn.ReLU(
             torch.nn.ReLU(y - self._vh) * self._slope + self._gammah - self._gammal) + self._gammal
         return (-(1 - self._delta) * piecewise_linear - self._rate) * y
@@ -185,12 +185,12 @@ class BurgesType(Equation):
                                      self._dim,
                                      self._num_time_interval]) * self._sqrt_delta_t
         x_sample = np.zeros([num_sample, self._dim, self._num_time_interval + 1])
-        x_sample[:, :, 0] = np.ones([num_sample, self._dim]) * x0 # self._x_init
+        x_sample[:, :, 0] = x0 # np.ones([num_sample, self._dim]) * x0 # self._x_init
         for i in range(self._num_time_interval):
             x_sample[:, :, i + 1] = x_sample[:, :, i] + self._sigma * dw_sample[:, :, i]
         return torch.as_tensor(dw_sample, dtype=torch.float64), torch.as_tensor(x_sample, dtype=torch.float64)
 
-    def f_tf(self, t, x, y, z):
+    def f_tf(self, t, x, y, z, device=torch.device("cuda")):
         return (y - (2 + self._dim) / 2.0 / self._dim) * torch.sum(z, 1, keepdim=True)
 
     def g_tf(self, t, x):
@@ -205,21 +205,21 @@ class QuadraticGradients(Equation):
     def __init__(self, dim, total_time, num_time_interval):
         super(QuadraticGradients, self).__init__(dim, total_time, num_time_interval)
         self._alpha = 0.4
-        self._x_init = np.zeros(self._dim)
-        base = self._total_time + np.sum(np.square(self._x_init) / self._dim)
-        self._y_init = np.sin(np.power(base, self._alpha))
+        #self._x_init = np.zeros(self._dim)
+        #base = self._total_time + np.sum(np.square(self._x_init) / self._dim)
+        #self._y_init = np.sin(np.power(base, self._alpha))
 
-    def sample(self, num_sample):
+    def sample(self, num_sample, x0):
         dw_sample = normal.rvs(size=[num_sample,
                                      self._dim,
                                      self._num_time_interval]) * self._sqrt_delta_t
         x_sample = np.zeros([num_sample, self._dim, self._num_time_interval + 1])
-        x_sample[:, :, 0] = np.ones([num_sample, self._dim]) * self._x_init
+        x_sample[:, :, 0] = x0 # np.ones([num_sample, self._dim]) * self._x_init
         for i in range(self._num_time_interval):
             x_sample[:, :, i + 1] = x_sample[:, :, i] + dw_sample[:, :, i]
         return torch.as_tensor(dw_sample, dtype=torch.float64), torch.as_tensor(x_sample, dtype=torch.float64)
 
-    def f_tf(self, t, x, y, z):
+    def f_tf(self, t, x, y, z, device=torch.device("cuda")):
         x_square = torch.sum(torch.square(x), 1, keepdim=True)
         base = self._total_time - t + x_square / self._dim
         base_alpha = torch.pow(base, self._alpha)
@@ -238,7 +238,13 @@ class QuadraticGradients(Equation):
 
     def g_tf(self, t, x):
         return torch.sin(
-            torch.pow(torch.sum(torch.pow(x,2), 1, keepdim=True) / self._dim, self._alpha))
+            torch.pow(torch.sum(torch.square(x), 1, keepdim=True) / self._dim, self._alpha))
+
+    def y_init_analytical(self, x):
+        x = x.reshape(-1, self._dim)
+        base = self._total_time + np.sum(np.square(x) / self._dim, axis=1)
+        return np.sin(np.power(base, self._alpha))
+
 
 
 class ReactionDiffusion(Equation):
@@ -255,16 +261,17 @@ class ReactionDiffusion(Equation):
                                      self._dim,
                                      self._num_time_interval]) * self._sqrt_delta_t
         x_sample = np.zeros([num_sample, self._dim, self._num_time_interval + 1])
-        x_sample[:, :, 0] = np.ones([num_sample, self._dim]) * x0 # self._x_init
+        x_sample[:, :, 0] = x0 # np.ones([num_sample, self._dim]) * x0 # self._x_init
         for i in range(self._num_time_interval):
             x_sample[:, :, i + 1] = x_sample[:, :, i] + dw_sample[:, :, i]
         return torch.as_tensor(dw_sample, dtype=torch.float64), torch.as_tensor(x_sample, dtype=torch.float64)
 
-    def f_tf(self, t, x, y, z):
+    def f_tf(self, t, x, y, z, device=torch.device("cuda")):
         exp_term = np.exp((self._lambda ** 2) * self._dim * (t - self._total_time) / 2)
         sin_term = torch.sin(self._lambda * torch.sum(x, 1, keepdim=True))
         temp = y - self._kappa - 1 - sin_term * exp_term
-        return torch.min(torch.tensor(1.0, dtype=torch.float64), torch.pow(temp,2))
+        #return torch.min(torch.tensor(1.0, dtype=torch.float64), torch.pow(temp,2))
+        return torch.min(torch.tensor(1.0, dtype=torch.float64).to(device), torch.pow(temp,2))
 
     def g_tf(self, t, x):
         return 1 + self._kappa + torch.sin(self._lambda * torch.sum(x, 1, keepdim=True))

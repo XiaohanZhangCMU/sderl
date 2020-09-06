@@ -3,11 +3,12 @@ import numpy as np
 
 class Config(object):
     n_layer = 4
-    batch_size = 64
+    batch_size = 512
     valid_size = 256
+    patience = 50
     step_boundaries = [2000, 4000]
-    num_pts = 1
-    logging_frequency = 100
+    num_pts = 100
+    logging_frequency = 1
     verbose = True
     y_init_range = [0, 1]
 
@@ -28,7 +29,7 @@ class HJBConfig(Config):
     dim = 100
     total_time = 1.0
     num_time_interval = 3
-    train_iters=300
+    train_iters=1500
     lr_boundaries = [400]
     lr_values = list(np.array([1e-2, 1e-2]))
     num_hiddens = [dim, dim+10, dim+10, dim]
@@ -59,7 +60,7 @@ class BurgesTypeConfig(Config):
     dim = 50
     total_time = 0.2
     num_time_interval = 30
-    train_iters=300
+    train_iters=15000
     lr_values = list(np.array([1e-2, 1e-3, 1e-4]))
     lr_boundaries = [15000, 25000]
     num_hiddens = [dim, dim+10, dim+10, dim]
@@ -70,7 +71,8 @@ class QuadraticGradientsConfig(Config):
     dim = 100
     total_time = 1.0
     num_time_interval = 30
-    lr_values = list(np.array([5e-3, 5e-3]))
+    train_iters=15000
+    lr_values = list(np.array([1e-2, 5e-3]))
     lr_boundaries = [2000]
     num_hiddens = [dim, dim+10, dim+10, dim]
     y_init_range = [2, 4]
@@ -80,8 +82,8 @@ class ReactionDiffusionConfig(Config):
     dim = 100
     total_time = 1.0
     num_time_interval = 30
-    train_iters=300
-    lr_values = list(np.array([1e-2, 1e-2, 1e-2]))
+    train_iters=15000
+    lr_values = list(np.array([1e-2, 1e-3, 1e-4]))
     lr_boundaries = [8000, 16000]
     num_hiddens = [dim, dim+10, dim+10, dim]
 

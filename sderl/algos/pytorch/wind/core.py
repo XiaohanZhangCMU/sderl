@@ -5,6 +5,8 @@ import torch.nn as nn
 from torch.distributions.normal import Normal
 from torch.distributions.categorical import Categorical
 
+# use validation set and early stopping to detect stopping time.
+# have a big test dataset to report final performance.
 
 def combined_shape(length, shape=None):
     if shape is None:
@@ -95,7 +97,8 @@ class MLPActor(nn.Module):
         for j in range(len(sizes)-1):
             act = nn.ReLU if j < len(sizes)-2 else nn.Identity
             layers += [nn.BatchNorm1d(sizes[j], affine=True), nn.Linear(sizes[j], sizes[j+1], bias=False), act()]
-        layers += [nn.BatchNorm1d(sizes[-1], affine=True)]
+        #layers += [nn.BatchNorm1d(sizes[-1], affine=True)]
+        layers += [nn.BatchNorm1d(sizes[-1], affine=True), nn.Dropout(p=0.2)]
         self.pi_net = nn.Sequential(*layers).double()
 
         def init_weights(m):
