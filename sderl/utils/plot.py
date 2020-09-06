@@ -156,18 +156,19 @@ def plot_data(data, xaxis='Epoch', value="AverageEpRet", condition="Condition1",
     data['Condition2_short']=data['Condition2'].apply(lambda x : x[len(commonprefix(data['Condition2'].unique().tolist())):])
 
     sns.set(style="darkgrid", font_scale=1.5)
-    if shorten_legends:        
+    if shorten_legends:
         # sns.tsplot(data=data, time=xaxis, value=value, unit="Unit", condition=condition+'_short', ci='sd', **kwargs)
-        sns.lineplot(data=data, x=xaxis, y=value, hue=condition+'_short', ci='sd', **kwargs)
+        ax = sns.lineplot(data=data, x=xaxis, y=value, hue=condition+'_short', ci='sd', **kwargs)
     else:
         # sns.tsplot(data=data, time=xaxis, value=value, unit="Unit", condition=condition, ci='sd', **kwargs)
-        sns.lineplot(data=data, x=xaxis, y=value, hue=condition, ci='sd', **kwargs)        
+        ax = sns.lineplot(data=data, x=xaxis, y=value, hue=condition, ci='sd', **kwargs)
 
-    # plt.legend(loc='best').set_draggable(True)
+    ax.set_yscale('log', nonposy='clip')
+    plt.legend(loc='best').set_draggable(True)
     # plt.legend(loc='upper center', ncol=3, handlelength=1,
     #           borderaxespad=0., prop={'size': 13})
-    plt.legend(loc='lower right', ncol=1, handlelength=1,
-               mode=None, borderaxespad=0., prop={'size': 12})
+    #plt.legend(loc='lower right', ncol=1, handlelength=1,
+    #           mode=None, borderaxespad=0., prop={'size': 12})
 
     xscale = np.max(np.asarray(data[xaxis])) > 5e3
     if xscale:
@@ -176,7 +177,7 @@ def plot_data(data, xaxis='Epoch', value="AverageEpRet", condition="Condition1",
 
     plt.tight_layout(pad=0.5)
 
-def get_datasets(logdir, condition=None):
+def get_datasets(logdir, perf=None, condition=None, train_history_file='progress.txt'):
     """
     Recursively look through logdir for output files produced by
     sderl.logx.Logger.
@@ -187,7 +188,8 @@ def get_datasets(logdir, condition=None):
     global units
     datasets = []
     for root, _, files in os.walk(logdir):
-        if 'progress.txt' in files:
+        print('root = {}'.format(root))
+        if train_history_file in files:
             exp_name = None
             try:
                 config_path = open(os.path.join(root,'config.json'))
@@ -205,11 +207,18 @@ def get_datasets(logdir, condition=None):
             units[condition1] += 1
 
             try:
-                exp_data = pd.read_table(os.path.join(root,'progress.txt'))
+                if train_history_file.endswith('.csv'):
+                    exp_data = pd.read_csv(os.path.join(root,train_history_file))
+                else:
+                    exp_data = pd.read_table(os.path.join(root,train_history_file))
+                print('exp_data.shape = ', exp_data.shape)
             except:
-                print('Could not read from %s'%os.path.join(root,'progress.txt'))
+                print('Could not read from %s'%os.path.join(root,train_history_file))
                 continue
-            performance = 'AverageTestEpRet' if 'AverageTestEpRet' in exp_data else 'AverageEpRet'
+            if not perf:
+                performance = 'AverageTestEpRet' if 'AverageTestEpRet' in exp_data else 'AverageEpRet'
+            else:
+                performance = perf
             exp_data.insert(len(exp_data.columns),'Unit',unit)
             exp_data.insert(len(exp_data.columns),'Condition1',condition1)
             exp_data.insert(len(exp_data.columns),'Condition2',condition2)
@@ -218,7 +227,7 @@ def get_datasets(logdir, condition=None):
     return datasets
 
 
-def get_all_datasets(all_logdirs, legend=None, select=None, exclude=None):
+def get_all_datasets(all_logdirs, legend=None, select=None, exclude=None, perf=None, train_history_file='progress.txt'):
     """
     For every entry in all_logdirs,
         1) check if the entry is a real directory and if it is,
@@ -262,23 +271,24 @@ def get_all_datasets(all_logdirs, legend=None, select=None, exclude=None):
     data = []
     if legend:
         for log, leg in zip(logdirs, legend):
-            data += get_datasets(log, leg)
+            data += get_datasets(log, leg, perf=perf, train_history_file=train_history_file)
     else:
         for log in logdirs:
-            data += get_datasets(log)
+            data += get_datasets(log, perf=perf, train_history_file=train_history_file)
     return data
 
 
 def make_plots(all_logdirs, legend=None, xaxis=None, values=None, count=False,
-               font_scale=1.5, smooth=1, select=None, exclude=None, estimator='mean', shorten_legends=False):
-    data = get_all_datasets(all_logdirs, legend, select, exclude)
+               font_scale=1.5, smooth=1, select=None, exclude=None, estimator='mean', shorten_legends=False, perf=None, train_history_file='progress.txt', just_data=False):
+    data = get_all_datasets(all_logdirs, legend, select, exclude, perf=perf, train_history_file=train_history_file)
     values = values if isinstance(values, list) else [values]
     condition = 'Condition2' if count else 'Condition1'
     estimator = getattr(np, estimator)      # choose what to show on main curve: mean? max? min?
-    for value in values:
-        plt.figure()
-        plot_data(data, xaxis=xaxis, value=value, condition=condition, smooth=smooth, estimator=estimator, shorten_legends=shorten_legends)
-    plt.show()
+    if not just_data:
+        for value in values:
+            plt.figure()
+            plot_data(data, xaxis=xaxis, value=value, condition=condition, smooth=smooth, estimator=estimator, shorten_legends=shorten_legends)
+        plt.show()
 
     return data, values, estimator
 
